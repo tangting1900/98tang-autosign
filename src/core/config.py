@@ -114,6 +114,17 @@ class ConfigManager:
             }
         )
 
+        # PushPlus 微信通知配置
+        self._config.update(
+            {
+                "ENABLE_PUSHPLUS_NOTIFICATION": os.getenv(
+                    "ENABLE_PUSHPLUS_NOTIFICATION", "false"
+                ).lower()
+                == "true",
+                "TELEGRAM_BOT_TOKEN": os.getenv("PUSHPLUS_TOKEN", "").strip(),
+            }
+        )
+        
         # Telegram 通知配置
         self._config.update(
             {
