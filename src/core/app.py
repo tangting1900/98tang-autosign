@@ -22,6 +22,7 @@ from ..notifications.telegram import (
     ExecutionSummary,
     NotificationData,
 )
+from ..notifications.pushplus import PushPlusNotifier, ExecutionSummary as PushPlusExecutionSummary
 from ..utils.timeout_protection import TimeoutProtectionContext
 from ..utils.encoding import EncodingHelper
 from ..utils.screenshot_helper import ScreenshotHelper
@@ -70,6 +71,10 @@ class AutoSignApp:
         self.telegram_notifier: Optional[TelegramNotifier] = None
         self._init_telegram_notifier()
 
+         # PushPlus通知器
+        self.pushplus_notifier: Optional[PushPlusNotifier] = None
+        self._init_pushplus_notifier()
+        
         # 执行摘要数据
         self.execution_start_time: Optional[str] = None
         self.task_results: list = []
@@ -135,6 +140,35 @@ class AutoSignApp:
             self.logger.error(f"Telegram通知器初始化失败: {e}")
             self.telegram_notifier = None
 
+
+        def _init_pushplus_notifier(self) -> None:
+        """初始化PushPlus通知器"""
+        try:
+            # 检查是否启用PushPlus通知（建议在config中添加此配置项，如果没有可临时硬编码或使用现有变量）
+            if not self.config_manager.get("ENABLE_PUSHPLUS_NOTIFICATION", False):
+                self.logger.debug("PushPlus通知未启用")
+                return
+
+            # 获取配置（假设你在config.env中添加了 PUSHPLUS_TOKEN）
+            token = self.config_manager.get("PUSHPLUS_TOKEN", "").strip()
+
+            if not token:
+                self.logger.warning("PushPlus通知已启用但Token缺失，跳过初始化")
+                return
+
+            # 创建通知器
+            self.pushplus_notifier = PushPlusNotifier(
+                token=token,
+                logger=self.logger,
+            )
+
+            self.logger.info("PushPlus通知器初始化成功")
+
+        except Exception as e:
+            self.logger.error(f"PushPlus通知器初始化失败: {e}")
+            self.pushplus_notifier = None
+
+    
     def _record_task_result(
         self, task_type: str, success: bool, message: str, details: str = None
     ) -> None:
@@ -270,6 +304,27 @@ class AutoSignApp:
         except Exception as notify_error:
             self.logger.warning(f"发送错误通知时出错: {notify_error}")
 
+         # 添加 PushPlus 错误通知（简单文本）
+        if self.pushplus_notifier:
+            try:
+                title = "98tang-autosign 错误报告"
+                content = f"""
+                执行过程中发生错误: {error_title}
+                
+                错误详情:
+                {error_message}
+                
+                时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+                用户名: {self.config_manager.get('username', '未知')}
+                """.strip()
+                success = self.pushplus_notifier.send_message(title, content)
+                if success:
+                    self.logger.debug("PushPlus错误通知已发送")
+                else:
+                    self.logger.warning("PushPlus错误通知发送失败")
+            except Exception as e:
+                self.logger.warning(f"发送PushPlus错误通知时出错: {e}")
+
     def _send_execution_summary(self, overall_success: bool) -> None:
         """发送统一的执行摘要通知（包含所有相关文件和信息）"""
         if not self.telegram_notifier or not self.execution_start_time:
@@ -353,6 +408,39 @@ class AutoSignApp:
         except Exception as e:
             self.logger.warning(f"发送Telegram执行摘要失败: {e}")
 
+      # 添加 PushPlus 执行摘要通知
+        if self.pushplus_notifier and self.execution_start_time:
+            try:
+                end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                # 计算执行时长（复用已有逻辑）
+                start_dt = datetime.strptime(self.execution_start_time, "%Y-%m-%d %H:%M:%S")
+                end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
+                duration = end_dt - start_dt
+                total_seconds = int(duration.total_seconds())
+                minutes = total_seconds // 60
+                seconds = total_seconds % 60
+                duration_str = f"{minutes}分{seconds}秒" if minutes > 0 else f"{seconds}秒"
+
+                # 创建 PushPlus 专用的 ExecutionSummary
+                summary = PushPlusExecutionSummary(
+                    username=self.config_manager.get("username", "未知用户"),
+                    start_time=self.execution_start_time,
+                    end_time=end_time,
+                    total_duration=duration_str,
+                    tasks=self.task_results,
+                    overall_success=overall_success,
+                )
+
+                success = self.pushplus_notifier.send_summary(summary)
+                if success:
+                    self.logger.debug("PushPlus执行摘要已发送")
+                else:
+                    self.logger.warning("PushPlus执行摘要发送失败")
+            except Exception as e:
+                self.logger.warning(f"发送PushPlus执行摘要失败: {e}")
+
+    
     def _initialize_managers(self) -> bool:
         """
         初始化业务管理器
