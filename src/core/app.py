@@ -141,7 +141,7 @@ class AutoSignApp:
             self.telegram_notifier = None
 
 
-        def _init_pushplus_notifier(self) -> None:
+    def _init_pushplus_notifier(self) -> None:
         """初始化PushPlus通知器"""
         try:
             # 检查是否启用PushPlus通知（建议在config中添加此配置项，如果没有可临时硬编码或使用现有变量）
